@@ -447,38 +447,71 @@
         form.addEventListener('submit', async e => {
             e.preventDefault();
 
-            const formData = new FormData(form);
-            const file = formData.get('photo');
+            // Disable submit button to prevent double submission
+            const submitBtn = document.getElementById('submitBtn');
+            const originalText = submitBtn.textContent;
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Submitting...';
 
-            // Debug: Log all form data
-            console.log('Form data being sent:');
-            for (let [key, value] of formData.entries()) {
-                console.log(key + ': ' + value);
-            }
+            try {
+                const formData = new FormData(form);
+                const file = formData.get('photo');
 
-            if (file && file.size > 0) {
-            const base64 = await toBase64(file);
-            formData.append('photoData', base64.split(',')[1]); // Remove the data:image/jpeg;base64, part
-            formData.append('photoName', file.name);
-            formData.append('photoType', file.type);
-            }
+                // Show loading message
+                showMessage('user-message', 'Submitting your complaint...', 'success');
 
-            formData.delete('photo'); // remove actual file since we sent base64
-
-            fetch(scriptURL, {
-            method: 'POST',
-            body: formData,
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.result === 'success') {
-                alert('Thanks for your complaint! Row: ' + data.row);
-                form.reset();
-                } else {
-                alert('Error: ' + data.error);
+                // Handle file upload if present
+                if (file && file.size > 0) {
+                    // Check file size (limit to 2MB for faster upload)
+                    if (file.size > 2 * 1024 * 1024) {
+                        throw new Error('File size must be less than 2MB');
+                    }
+                    
+                    const base64 = await toBase64(file);
+                    formData.append('photoData', base64.split(',')[1]);
+                    formData.append('photoName', file.name);
+                    formData.append('photoType', file.type);
                 }
-            })
-            .catch(error => alert('Submission Failed: ' + error.message));
+
+                formData.delete('photo'); // remove actual file since we sent base64
+
+                // Add timeout to fetch request
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
+                const response = await fetch(scriptURL, {
+                    method: 'POST',
+                    body: formData,
+                    signal: controller.signal
+                });
+
+                clearTimeout(timeoutId);
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                
+                if (data.result === 'success') {
+                    showMessage('user-message', 'Complaint submitted successfully! We will contact you soon.', 'success');
+                    form.reset();
+                } else {
+                    throw new Error(data.error || 'Submission failed');
+                }
+
+            } catch (error) {
+                console.error('Submission error:', error);
+                if (error.name === 'AbortError') {
+                    showMessage('user-message', 'Request timed out. Please try again.', 'error');
+                } else {
+                    showMessage('user-message', 'Submission failed: ' + error.message, 'error');
+                }
+            } finally {
+                // Re-enable submit button
+                submitBtn.disabled = false;
+                submitBtn.textContent = originalText;
+            }
         });
 
         function toBase64(file) {
