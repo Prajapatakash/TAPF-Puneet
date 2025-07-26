@@ -222,7 +222,7 @@
                             <option value="Admin Hall">Admin Hall</option>
                             <option value="Kitchen">Kitchen</option>
                             <option value="Washroom">Washroom</option>
-                            <option value="Door Marty">Dormitory</option>
+                            <option value="Dormitory">Dormitory</option>
                             <option value="Other">Other</option>
                         </select>
                     </div>
@@ -432,6 +432,12 @@
 
             const formData = new FormData(form);
             const file = formData.get('photo');
+
+            // Debug: Log all form data
+            console.log('Form data being sent:');
+            for (let [key, value] of formData.entries()) {
+                console.log(key + ': ' + value);
+            }
 
             if (file && file.size > 0) {
             const base64 = await toBase64(file);
