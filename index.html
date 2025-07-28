@@ -348,12 +348,18 @@
                 .catch(error => console.error('Error!', error.message))
             })
     </script> -->
-    <script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<script>
 
         // Configuration - Supabase Database
         const CONFIG = {
             SUPABASE_URL: 'https://kpjqjrluzllapoxyoevy.supabase.co', // Replace with your Supabase URL
             SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwanFqcmx1emxsYXBveHlvZXZ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM1MDMyMTIsImV4cCI6MjA2OTA3OTIxMn0.tdGKDcAMFd5s0pAWFAsSwQY6wsT20Tn2cGPiDIKbZr4', // Replace with your Supabase anon key
+            GOOGLE_SHEETS_URL: 'https://script.google.com/macros/s/AKfycbzCLdA92KUQalM9OAtmHZIZWs8neyN5ftvc4RKE4zTYrouwEwhA2XwadPxW-GrsQWp0/exec', // Replace with your Google Apps Script URL
+            SHEET_ID: '12FYBjjAfJCigTnva-QTQlsZXHUG3NxqrVUIE8qPw-PE',
+            API_KEY: 'AIzaSyBfBVH0fHXQyxEJa9Jcb0LyMT6_0qPcQmE',
+            RANGE: 'Sheet1!A:I',
             ADMIN_EMAIL: 'admin@temple.com',
             ADMIN_PASSWORD: 'temple123' // In production, use proper authentication
         };
@@ -537,11 +543,31 @@
             try {
                 const formData = new FormData(form);
                 const file = formData.get('photo');
+                let photo_url = '';
 
-                // Show loading message
-                showMessage('user-message', 'Submitting your complaint...', 'success');
+                if (file && file.size > 0) {
+    const uniqueFileName = `${Date.now()}-${file.name}`;
+    const formData = new FormData();
+    formData.append('file', file);
 
-                // Prepare complaint data
+    const uploadResponse = await fetch(`${CONFIG.SUPABASE_URL}/storage/v1/object/complaint-photos/${uniqueFileName}`, {
+        method: 'POST',
+        headers: {
+            'apikey': CONFIG.SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${CONFIG.SUPABASE_ANON_KEY}`
+        },
+        body: file
+    });
+
+    if (!uploadResponse.ok) {
+        throw new Error('Image upload failed');
+    }
+
+    photo_url = `${CONFIG.SUPABASE_URL}/storage/v1/object/public/complaint-photos/${uniqueFileName}`;
+}
+               
+
+                // 2. Prepare complaint data
                 const complaintData = {
                     area: formData.get('problemArea'),
                     problem_name: formData.get('problemName'),
@@ -549,35 +575,19 @@
                     user_email: formData.get('userEmail'),
                     user_name: formData.get('userName'),
                     user_mobile: formData.get('userMobile'),
-                    status: 'Pending'
+                    status: 'Pending',
+                    photo_url: photo_url // this replaces base64 photo base64
                 };
 
-                // Handle file upload if present
-                if (file && file.size > 0) {
-                    // Check file size (limit to 2MB for faster upload)
-                    if (file.size > 2 * 1024 * 1024) {
-                        throw new Error('File size must be less than 2MB');
-                    }
-                    
-                    const base64 = await toBase64(file);
-                    complaintData.photo_data = base64.split(',')[1];
-                    complaintData.photo_name = file.name;
+                // 3. Insert complaint into Supabase
+                const { data, error } = await supabase.from('complaints').insert([complaintData]);
+
+                if (error) {
+                    alert('Complaint submission failed: ' + error.message);
+                    return;
                 }
 
-                // Insert complaint into Supabase database
-                console.log('Submitting complaint data:', complaintData);
-                
-                const { data, error } = await supabase.from('complaints').insert(complaintData);
-                
-                console.log('Supabase response:', { data, error });
-                
-                if (error) {
-                    console.error('Supabase error:', error);
-                    throw new Error(error.message || 'Failed to submit complaint');
-                }
-                
-                console.log('Complaint submitted successfully with ID:', data?.[0]?.id);
-                showMessage('user-message', 'Complaint submitted successfully! We will contact you soon.', 'success');
+                alert('Complaint submitted successfully!');
                 form.reset();
 
             } catch (error) {
@@ -594,14 +604,6 @@
             }
         });
 
-        function toBase64(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = error => reject(error);
-    });
-  }
 
 
 
@@ -638,7 +640,9 @@
                     name: complaint.user_name,
                     mobileno: complaint.user_mobile,
                     photoName: complaint.photo_name,
-                    photoData: complaint.photo_data,
+                    
+                    photoUrl: complaint.photo_url,
+
                     status: complaint.status,
                     resolution: complaint.resolution,
                     rowNumber: complaint.id // Use database ID as row number
@@ -686,7 +690,8 @@
                         <p><strong>Reported by:</strong> ${complaint.name || 'N/A'} (${complaint.email || 'N/A'})</p>
                         <p><strong>Mobile:</strong> ${complaint.mobileno || 'N/A'}</p>
                         <p><strong>Date:</strong> ${new Date(complaint.timestamp).toLocaleString()}</p>
-                        ${complaint.photoName ? `<p><strong>Photo:</strong> ${complaint.photoName}</p>` : ''}
+                        ${complaint.photo_url ? `<p><strong>Photo:</strong> <br><img src="${complaint.photo_url}" alt="Complaint Photo" style="max-width: 200px; border-radius: 8px; margin-top: 8px;"> </p>` : ''}
+
                         
                         <div style="margin-top: 15px;">
                             <input type="text" id="resolution-${complaint.id}" placeholder="Enter resolution details..." style="width: 70%; margin-right: 10px;">
@@ -711,8 +716,8 @@
                         <p><strong>Reported by:</strong> ${complaint.name || 'N/A'} (${complaint.email || 'N/A'})</p>
                         <p><strong>Mobile:</strong> ${complaint.mobileno || 'N/A'}</p>
                         <p><strong>Date:</strong> ${new Date(complaint.timestamp).toLocaleString()}</p>
-                        ${complaint.photoName ? `<p><strong>Photo:</strong> ${complaint.photoName}</p>` : ''}
-                        ${complaint.resolution ? `<p><strong>Resolution:</strong> ${complaint.resolution}</p>` : ''}
+                        ${complaint.photo_url ? `<p><strong>Photo:</strong> <br><img src="${complaint.photo_url}" alt="Complaint Photo" style="max-width: 200px; border-radius: 8px; margin-top: 8px;"> </p>` : ''}
+
                         
                         <div style="margin-top: 15px;">
                             <button onclick="deleteComplaint(${complaint.id}, ${complaint.rowNumber})" style="background: #dc3545; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">Delete</button>
@@ -733,6 +738,12 @@
             }
             
             try {
+                // Get the complaint data before updating
+                const complaint = complaints.find(c => c.id === complaintId);
+                if (!complaint) {
+                    throw new Error('Complaint not found');
+                }
+                
                 // Update complaint in Supabase database
                 const { data, error } = await supabase.from('complaints').update({
                     status: 'Resolved',
@@ -744,14 +755,51 @@
                 }
                 
                 // Update local complaint data
-                const complaint = complaints.find(c => c.id === complaintId);
-                if (complaint) {
-                    complaint.status = 'Resolved';
-                    complaint.resolution = resolution;
+                complaint.status = 'Resolved';
+                complaint.resolution = resolution;
+                
+                // Send resolved complaint to Google Sheets
+                if (CONFIG.GOOGLE_SHEETS_URL && CONFIG.GOOGLE_SHEETS_URL !== 'https://script.google.com/macros/s/AKfycbzCLdA92KUQalM9OAtmHZIZWs8neyN5ftvc4RKE4zTYrouwEwhA2XwadPxW-GrsQWp0/exec') {
+                    try {
+                        const googleSheetsData = {
+                            id: complaint.id,
+                            timestamp: complaint.timestamp,
+                            area: complaint.area,
+                            problem_name: complaint.problemName,
+                            description: complaint.description,
+                            user_email: complaint.email,
+                            user_name: complaint.name,
+                            user_mobile: complaint.mobileno,
+                            photo_name: complaint.photoName || '',
+                            photo_url: complaint.photo_url,
+                            resolution: resolution
+                        };
+                        
+                        console.log('Sending to Google Sheets:', googleSheetsData);
+                        
+                        const googleResponse = await fetch(CONFIG.GOOGLE_SHEETS_URL, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify(googleSheetsData)
+                        });
+                        
+                        const googleResult = await googleResponse.json();
+                        
+                        if (googleResult.result === 'success') {
+                            console.log('Successfully sent to Google Sheets');
+                        } else {
+                            console.warn('Google Sheets sync failed:', googleResult.error);
+                        }
+                    } catch (googleError) {
+                        console.warn('Google Sheets sync error:', googleError);
+                        // Don't fail the whole operation if Google Sheets fails
+                    }
                 }
                 
                 displayComplaints();
-                showMessage('admin-message', 'Complaint marked as resolved!', 'success');
+                showMessage('admin-message', 'Complaint marked as resolved and sent to Google Sheets!', 'success');
                 
             } catch (error) {
                 console.error('Error resolving complaint:', error);
